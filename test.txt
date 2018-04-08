@@ -1,1 +1,2 @@
 My first git text file.
+File added successfully.
