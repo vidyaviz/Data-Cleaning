@@ -1,0 +1,267 @@
+---
+output:
+  html_document: default
+  html_notebook: default
+---
+
+
+
+
+
+
+## Required packages 
+
+
+```{r}
+library(tidyr)
+library(readr)
+library(stringr)
+library(dplyr)
+library(Hmisc)
+library(outliers)
+
+```
+
+## Executive Summary 
+
+
+In data preprocessing techniques raw data is transformed into workable data that can be used for statistical visualizations and analysis. In this report, these techniques are applied on 3 datasets sourced from sourced from Australian Bureau of Statistics (http://www.abs.gov.au/). These datasets have selected labor information for residents of all the local government areas in Victoria. These datasets were merged and various techniques like data type conversions, subsetting, scanning for outliers in the dataset was done in alignment with the tidy data principles to convert the raw data into data that is suitable for statistical purposes.
+
+## Data 
+
+The datasets in the current report have been sourced from Australian Bureau of Statistics (http://www.abs.gov.au/). 3 datasets, 2016Census_G02_VIC_LGA.csv, 2016Census_G40_VIC_LGA and LGA_2016_VIC have been used in the report. 
+2016Census_G40_VIC_LGA includes selected Medians and Averages for age, rent, mortgage, income and other information. 
+2016Census_G02_VIC_LGA.csv includes various information about selected Labour Force, Education and Migration Characteristics by Sex about the labour force in Victorian local government areas (LGA). 
+LGA_2016_VIC contains information  like names of LGA, area  the LGA etc.
+
+The 3 datasets were imported into lga_1, lga_2 and lga_3 dataframes using the read_csv function from readr package.
+
+```{r}
+#read data
+lga_1 <- read_csv("/Users/Vidya/Documents/Uni/Semester5/DataPreprocessing/assignment3/data_dp/2016Census_G02_VIC_LGA.csv")
+lga_2 <- read_csv("/Users/Vidya/Documents/Uni/Semester5/DataPreprocessing/assignment3/data_dp/2016Census_G40_VIC_LGA.csv")
+lga_3 <- read_csv("/Users/Vidya/Documents/Uni/Semester5/DataPreprocessing/assignment3/data_dp/LGA_2016_VIC.csv")
+
+head(lga_1, 3)
+head(lga_2, 3)
+head(lga_3, 3)
+
+```
+
+It was observed that lga_1 had 82 observations for 9 variables, lga_2 had 82 observations for 67 variables and lga_3 had 85014 observations for 6 variables.
+
+```{r}
+#dimension of the dataframe
+{ cat("dimension of lga_1: ", dim(lga_1))
+cat("\ndimension of lga_2: ", dim(lga_2))
+cat("\ndimension of lga_3: ", dim(lga_3))}
+```
+
+Since the report is only interested in looking at variables that give information about the employment details, education levels and such information, those that did not contribute to this were removed. Distinct LGA names were selected so that the final dataframe can have the names of each LGA. 
+
+```{r}
+#Dropping variables that are not of interest from the dataframes before joining
+
+lga_1 <- select(lga_1, LGA_CODE_2016, Median_mortgage_repay_monthly, Median_rent_weekly, Median_tot_fam_inc_weekly, Average_household_size)
+
+lga_2 <- lga_2[, c(1, 5:15)]
+
+lga_3 <- select(lga_3, LGA_CODE_2016, LGA_NAME_2016)
+
+
+#Select distinct lga names from lga_3
+lga_3 <-  lga_3 %>% distinct(LGA_CODE_2016, LGA_NAME_2016)
+```
+
+The 3 datasets were joined on the key variable LGA_CODE_2016. This variable was of different data type in LGA_3 table and therefore not combatible for joining. This column  was convered to character datatype before joining the 3 datasets.
+
+
+```{r}
+
+# change datatype to character to make the columns compatible
+lga_3$LGA_CODE_2016 <- as.character(lga_3$LGA_CODE_2016)
+
+```
+
+The 3 data frames was merged using the LGA_CODE_2016 column. The LGA codes in the LGA_CODE_2016 columns had 'LGA' prefixed to it. To combine the 3 dataframes the value has be similiar across the dataframes. Using the transform function from stringr, the 'LGA' prefix was removed.
+
+```{r}
+#change the name of the the lga_code column in lga_1 and lga_2
+lga_1 <- lga_1 %>% transform(LGA_CODE_2016=str_replace(LGA_CODE_2016,"LGA",""))
+
+lga_2 <- lga_2 %>%  transform(LGA_CODE_2016=str_replace(LGA_CODE_2016,"LGA",""))
+
+#Join the three tables
+lga_1_2 <- lga_1 %>% left_join(lga_2, by = "LGA_CODE_2016")
+
+lga_joined <- lga_1_2 %>% left_join(lga_3, by = "LGA_CODE_2016")
+
+#Shift the column LGA name next to the lga code
+lga_joined <- lga_joined %>% select(LGA_NAME_2016,everything())
+head(lga_joined,3)
+
+{ cat("dimension of lga_1_2: ", dim(lga_1_2))}
+
+```
+
+## Understand 
+There are 82 observations from 17 variables in the joined dataset. There are 2 character variables, 14 integer data types and 1 numeric type variable. 
+
+
+```{r}
+str(lga_joined)
+
+```
+Before performing any datatype conversions, the data needs to be reshaped. We can observe that columns 7 to 17 are values instead of variables.Therefore, the data does not conform to tidy data principles. To rectify this the dataset was converted from wide to long in the next section.
+
+##	Tidy & Manipulate Data I 
+
+The information for the employment status of residents of an LGA is spread across columns 7 to 10 in the joined dataset. To do any meaningful statistical visualizations or analysis on the data, these values will need to be contained inside the variable Employment_Status.This was done using the gather() function. Also, the employment details value also has details about the LGA residents's gender. To make the information in each cell atomic, the value was split and assigned to 2 different columns: Employment_status and Sex. There were rows which held values for all people of employable age in an LGA. This was also removed.
+
+
+```{r}
+# Forming Employment_status  column
+
+lga_emp <- lga_joined %>% gather(7:17, key = "Employment_status", value = "Count")
+
+lga_emp <- lga_emp %>% transform(Employment_status=str_replace(Employment_status,"lfs_","")) %>% separate(Employment_status, into = c("Employment_status","Sex"), sep = -1)
+head(lga_emp, 3)
+str(lga_emp)
+
+#Remove rows which have the total count of both sexes
+
+lga_emp_1 <- lga_emp %>% filter( Sex == 'F' | Sex =='M')
+
+#converting the Employment_status variable to factor with levels
+
+lga_emp_1$Sex <- as.factor(lga_emp_1$Sex)
+lga_emp_1$Employment_status <- as.factor(lga_emp_1$Employment_status)
+
+
+#rename factor levels
+levels(lga_emp_1$Sex)
+levels(lga_emp_1$Employment_status)
+
+lga_emp_1$Sex <- factor(lga_emp_1$Sex, ordered = TRUE,levels=c('F','M'),labels=c('Female','Male'))
+lga_emp_1$Employment_status <- factor(lga_emp_1$Employment_status, ordered = TRUE,levels=c("Employed_away_from_work_", "Emplyed_wrked_full_time_", "Emplyed_wrked_part_time_","Unmplyed_lookng_for_wrk_"),labels=c("Away",'Full_time','Part_time',"Unemployed/ Looking"))
+
+str(lga_emp_1)
+
+```
+
+##	Tidy & Manipulate Data II 
+
+
+A new variable Total that contains the information about the percentage of persons of each employment status by gender in each LGA was created. 
+
+```{r}
+#summarise the total number of males and females for each employment status in each LGA 
+lga_emp_total <- lga_emp_1 %>% group_by(Employment_status) %>%  group_by(LGA_NAME_2016) %>% summarise(Total = sum(Count, na.rm = TRUE))
+
+#join lga_emp_total to get the total 
+
+lga_emp_total <- lga_emp_1 %>% left_join(lga_emp_total, by = "LGA_NAME_2016")
+
+
+#create new dataframe which has the mutated value
+lga_unemp_percentage <- mutate(lga_emp_total, Emp_status_Perc_by_lga = round((Count/Total)*100,2))
+head(lga_unemp_percentage,3)
+
+```
+
+
+##	Scan I 
+
+
+The lga_unemp_percentage dataset was scanned for missing or special values. No such values were found.
+
+```{r}
+
+is.special <- function(x){
+  if (is.numeric(x)) !is.finite(x) else is.na(x)
+}
+
+
+is.special <- function(x){
+  if (is.numeric(x)) !is.finite(x)
+}
+sapply(lga_unemp_percentage, is.special)
+# no na or other special values found
+```
+
+
+##	Scan II
+
+The lga_unemp_percentage dataset was scanned for outliers by plotting the boxplot for the numerical variables. The boxplot for the Median_mortgage_repay_monthly, Median_rent_weekly, Median_tot_fam_inc_weekly, Average_household_size showed some low and high values. According to the Z-score method, the dataset has 48 outliers. 
+
+
+```{r}
+
+par(mfrow = c(2,3))
+
+boxplot(lga_unemp_percentage$Median_mortgage_repay_monthly, xlab="Median monthly mortgage repayment", col = "grey")
+boxplot(lga_unemp_percentage$Median_rent_weekly, xlab="Median weekly rent", col = "grey")
+boxplot(lga_unemp_percentage$Median_tot_fam_inc_weekly, xlab = "Median family weekly income", col = "grey")
+boxplot(lga_unemp_percentage$Average_household_size, xlab = "Average Household size", col = "grey")
+boxplot(lga_unemp_percentage$Total, xlab = "Number of persons over 15 years in the LGA", col = "grey")
+
+#There are rows which have median income of 0. These were inspected by filtering the rows.
+
+outlier_detection_var <- lga_unemp_percentage %>% select("Median_mortgage_repay_monthly","Median_rent_weekly","Median_tot_fam_inc_weekly", "Average_household_size")
+z.scores <- outlier_detection_var  %>%  scores(type = "z")
+z.scores %>% summary()
+
+length(which( abs(z.scores) >3 ))
+
+lga_unemp_percentage %>% filter(Median_mortgage_repay_monthly == 0)
+
+```
+
+There were also some datapoints equalling 0 in the boxplots. The rows corresponding to these data points were investigated by filtering them from the dataset. It was discovered that these rows had the LGA code 29799 and 29499. The LGA code 29799 is reserved for cases where people are coded to Migratory, Off-shore and Shipping Mesh Blocks. LGA code 29499 is reserved for cases where people are coded to No usual address Mesh Blocks. Since these rows do not add much information to the data set and to make the data less skewed, they were removed from the data frame.
+
+
+```{r}
+#Remove rows which have 0 value
+
+lga_unemp_percentage_outliers_rm <- lga_unemp_percentage%>% filter(LGA_CODE_2016 != 29499 & LGA_CODE_2016 != 29799)
+#boxplot after outlier removal.
+par(mfrow = c(2,3))
+
+boxplot(lga_unemp_percentage_outliers_rm$Median_mortgage_repay_monthly, xlab="Median monthly mortgage repayment", col = "grey")
+boxplot(lga_unemp_percentage_outliers_rm$Median_rent_weekly, xlab="Median weekly rent", col = "grey")
+boxplot(lga_unemp_percentage_outliers_rm$Median_tot_fam_inc_weekly, xlab = "Median family weekly income", col = "grey")
+boxplot(lga_unemp_percentage_outliers_rm$Average_household_size, xlab = "Average Household size", col = "grey")
+boxplot(lga_unemp_percentage_outliers_rm$Total, xlab = "Number of persons over 15 years in the LGA", col = "grey")
+
+```
+
+The boxplots show that there are still outliers in the data. Since the data set reports the observed value for each variable, it would be counter-productive to remove these values. On the contrary, these points could be quite informative in giving insights about why certain LGA's have unusually high or low values for the indexes in the data set. So, these outliers were not removed or imputed from the dataset.
+
+##	Transform 
+
+Following are the histograms for the Median_mortgage_repay_monthly, Median_rent_weekly, Median_tot_fam_inc_weekly, Average_household_size, Total and Emp_status_Perc_by_lga variables in the dataset.
+
+```{r}
+ 
+par(mfrow = c(2,3))
+hist(lga_unemp_percentage_outliers_rm$Median_mortgage_repay_monthly, col = "light blue")
+hist(lga_unemp_percentage_outliers_rm$Median_rent_weekly, col = "light blue")
+hist(lga_unemp_percentage_outliers_rm$Median_tot_fam_inc_weekly, col = "light blue")
+hist(lga_unemp_percentage_outliers_rm$Average_household_size, col = "light blue")
+hist(lga_unemp_percentage_outliers_rm$Total, col = "light blue")
+hist(lga_unemp_percentage_outliers_rm$Emp_status_Perc_by_lga, col = "light blue")
+
+
+```
+The histogram for the variable 'Total' and Emp_status_Perc_by_lga which gives the count and percentages of the persons by different employment status for each gender has a right-skewed distribution. To prepare the dataset for statistical analysis, a logarithmic transformation was applied on the 'Total' variable to make it more symmetric.
+
+```{r}
+hist(log(lga_unemp_percentage_outliers_rm$Total))
+hist(log(lga_unemp_percentage_outliers_rm$Emp_status_Perc_by_lga))
+
+```
+
+
+
+<br>
+<br>
